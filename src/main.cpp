@@ -1,6 +1,7 @@
 #include <EEPROM.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h>
 #include <Wire.h>
 #include <secrets.h>
 
@@ -14,7 +15,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
  Serial.print(topic);
  Serial.print("] ");
 
- for (int i=0; i<length; i++) {
+ for (unsigned int i=0; i<length; i++) {
   char receivedChar = (char)payload[i];
   Serial.print(receivedChar);
   if (receivedChar == '0')
@@ -60,6 +61,29 @@ void ensureMQTTConnection() {
   }
 }
 
+char* getTemperature() {
+  return "20"; // TODO
+}
+
+char* getHumidity() {
+  return "20"; // TODO
+}
+
+void sendStateUpdate() {
+  StaticJsonBuffer<256> jsonBuffer;
+
+  JsonObject& root = jsonBuffer.createObject();
+  root["temperature"] = getTemperature();
+  root["humidity"] = getHumidity();
+
+  char payload[256];
+  root.printTo(payload, sizeof(payload));
+
+  root.prettyPrintTo(Serial);
+  mqttClient.publish(MQTT_TOPIC, payload);
+  delay(30000);
+}
+
 void reconnect() {
   ensureWiFiConnection();
   ensureMQTTConnection();
@@ -79,6 +103,8 @@ void loop()
 {
   if (!mqttClient.connected())
     reconnect();
+
+  sendStateUpdate();
 
   mqttClient.loop();
 }
