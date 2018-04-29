@@ -4,29 +4,20 @@
 #include <ArduinoJson.h>
 #include <Wire.h>
 #include <secrets.h>
+#include <DHT.h>
+#include <DHT_U.h>
+
+#define DHTPIN 0       // Pin which is connected to the DHT sensor.
+#define DHTTYPE DHT22  // AM2302
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 
+DHT_Unified dht(DHTPIN, DHTTYPE);
+uint32_t minSensorDelay; // ms
+uint32_t coreLoopDelay = 30000;
+
 const byte ledPin = 0; // Pin with LED on Adafruit Huzzah
-
-void callback(char* topic, byte* payload, unsigned int length) {
- Serial.print("Message arrived [");
- Serial.print(topic);
- Serial.print("] ");
-
- for (unsigned int i=0; i<length; i++) {
-  char receivedChar = (char)payload[i];
-  Serial.print(receivedChar);
-  if (receivedChar == '0')
-    // ESP8266 Huzzah outputs are "reversed"
-    digitalWrite(ledPin, HIGH);
-
-  if (receivedChar == '1')
-    digitalWrite(ledPin, LOW);
-  }
-  Serial.println();
-}
 
 void ensureWiFiConnection() {
   while (WiFi.status() != WL_CONNECTED) {
@@ -38,7 +29,7 @@ void ensureWiFiConnection() {
       Serial.print(status);
       Serial.println(", retrying in 5 seconds");
 
-      delay(5000);
+      delay(coreLoopDelay);
     }
   }
 }
@@ -61,12 +52,28 @@ void ensureMQTTConnection() {
   }
 }
 
-char* getTemperature() {
-  return "20"; // TODO
+float getTemperature() {
+  sensors_event_t event;
+  dht.temperature().getEvent(&event);
+
+  if (isnan(event.temperature)) {
+    Serial.println("Error while reading temperature");
+    return 0.0f;
+  }
+
+  return event.temperature; //C
 }
 
-char* getHumidity() {
-  return "20"; // TODO
+float getHumidity() {
+  sensors_event_t event;
+  dht.humidity().getEvent(&event);
+
+  if (isnan(event.relative_humidity)) {
+    Serial.println("Error while reading humidity");
+    return 0.0f;
+  }
+
+  return event.relative_humidity; // %
 }
 
 void sendStateUpdate() {
@@ -81,7 +88,6 @@ void sendStateUpdate() {
 
   root.prettyPrintTo(Serial);
   mqttClient.publish(MQTT_TOPIC, payload);
-  delay(30000);
 }
 
 void reconnect() {
@@ -91,12 +97,43 @@ void reconnect() {
 
 void setup()
 {
- Serial.begin(9600);
+  Serial.begin(9600);
+  mqttClient.setServer(MQTT_SERVER, 1883);
 
- mqttClient.setServer(MQTT_SERVER, 1883);
- mqttClient.setCallback(callback);
+  Serial.println("Initializing Sensor");
+  dht.begin();
 
- pinMode(ledPin, OUTPUT);
+  Serial.println("Sensor Information:");
+  sensor_t sensor;
+  dht.temperature().getSensor(&sensor);
+  Serial.println("------------------------------------");
+  Serial.println("Temperature");
+  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
+  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
+  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
+  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println(" *C");
+  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println(" *C");
+  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println(" *C");
+  Serial.println("------------------------------------");
+
+  // Print humidity sensor details.
+  dht.humidity().getSensor(&sensor);
+  Serial.println("------------------------------------");
+  Serial.println("Humidity");
+  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
+  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
+  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
+  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println("%");
+  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println("%");
+  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println("%");
+  Serial.println("------------------------------------");
+
+  // Set delay between sensor readings based on sensor details.
+  minSensorDelay = sensor.min_delay / 1000; // ms
+}
+
+uint32_t loopDelay() {
+  return max(coreLoopDelay, minSensorDelay);
 }
 
 void loop()
@@ -107,4 +144,6 @@ void loop()
   sendStateUpdate();
 
   mqttClient.loop();
+
+  delay(loopDelay());
 }
