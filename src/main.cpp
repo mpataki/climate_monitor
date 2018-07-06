@@ -18,6 +18,8 @@ uint32_t minSensorDelay; // ms
 uint32_t coreLoopDelay = 30000;
 
 const byte ledPin = 0; // Pin with LED on Adafruit Huzzah
+float lastHumidity = 0.0f;
+float lastTemperature = 0.0f;
 
 void ensureWiFiConnection() {
   while (WiFi.status() != WL_CONNECTED) {
@@ -40,8 +42,6 @@ void ensureMQTTConnection() {
 
     if (mqttClient.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
       Serial.println("connected");
-
-      mqttClient.subscribe("ledStatus");
     } else {
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
@@ -58,10 +58,11 @@ float getTemperature() {
 
   if (isnan(event.temperature)) {
     Serial.println("Error while reading temperature");
-    return 0.0f;
+    return lastTemperature;
   }
 
-  return event.temperature; //C
+  lastTemperature = event.temperature; //C
+  return lastTemperature;
 }
 
 float getHumidity() {
@@ -70,10 +71,11 @@ float getHumidity() {
 
   if (isnan(event.relative_humidity)) {
     Serial.println("Error while reading humidity");
-    return 0.0f;
+    return lastHumidity;
   }
 
-  return event.relative_humidity; // %
+  lastHumidity = event.relative_humidity; // %
+  return lastHumidity;
 }
 
 void sendStateUpdate() {
