@@ -1,151 +1,73 @@
-#include <EEPROM.h>
-#include <ESP8266WiFi.h>
+// #include <EEPROM.h>
 #include <PubSubClient.h>
-#include <ArduinoJson.h>
-#include <Wire.h>
 #include <secrets.h>
-#include <DHT.h>
-#include <DHT_U.h>
+#include "Core.h"
+#include "ClimateSensor.h"
 
-#define DHTPIN 0       // Pin which is connected to the DHT sensor.
-#define DHTTYPE DHT22  // AM2302
-
+Core core;
+ClimateSensor climateSensor;
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
-
-DHT_Unified dht(DHTPIN, DHTTYPE);
-uint32_t minSensorDelay; // ms
-uint32_t coreLoopDelay = 30000;
-
-const byte ledPin = 0; // Pin with LED on Adafruit Huzzah
-float lastHumidity = 0.0f;
-float lastTemperature = 0.0f;
-
-void ensureWiFiConnection() {
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Connecting to WiFi");
-    int status = WiFi.begin(SSID, WIFI_PASSWORD);
-
-    if (status != WL_CONNECTED) {
-      Serial.print("failed to connect to WiFi, status: ");
-      Serial.print(status);
-      Serial.println(", retrying in 5 seconds");
-
-      delay(coreLoopDelay);
-    }
-  }
-}
-
-void ensureMQTTConnection() {
- while (!mqttClient.connected()) {
-   Serial.print("Attempting MQTT connection...");
-
-    if (mqttClient.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
-      Serial.println("connected");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println(", retrying in 5 seconds");
-
-      delay(5000);
-    }
-  }
-}
-
-float getTemperature() {
-  sensors_event_t event;
-  dht.temperature().getEvent(&event);
-
-  if (isnan(event.temperature)) {
-    Serial.println("Error while reading temperature");
-    return lastTemperature;
-  }
-
-  lastTemperature = event.temperature; //C
-  return lastTemperature;
-}
-
-float getHumidity() {
-  sensors_event_t event;
-  dht.humidity().getEvent(&event);
-
-  if (isnan(event.relative_humidity)) {
-    Serial.println("Error while reading humidity");
-    return lastHumidity;
-  }
-
-  lastHumidity = event.relative_humidity; // %
-  return lastHumidity;
-}
 
 void sendStateUpdate() {
   StaticJsonBuffer<256> jsonBuffer;
 
   JsonObject& root = jsonBuffer.createObject();
-  root["temperature"] = getTemperature();
-  root["humidity"] = getHumidity();
+  root["temperature"] = climateSensor.getTemperature();
+  root["humidity"] = climateSensor.getHumidity();
 
   char payload[256];
   root.printTo(payload, sizeof(payload));
 
   root.prettyPrintTo(Serial);
-  mqttClient.publish(MQTT_TOPIC, payload);
+  mqttClient.publish(MQTT_TOPIC, payload); // TODO: MQTT_TOPIC should be configurable
 }
 
-void reconnect() {
-  ensureWiFiConnection();
-  ensureMQTTConnection();
+bool ensureMqttConnected() {
+  if (mqttClient.connected()) return true;
+
+  int retryLimit = 5;
+  int tries = 1;
+
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+
+    if (mqttClient.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) { // TODO: all of these should be configurable
+      Serial.println("MQTT connection established");
+    } else if (tries < retryLimit) {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(", retrying in 5 seconds");
+
+      delay(5000);
+      tries++;
+    } else {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 void setup()
 {
   Serial.begin(9600);
-  mqttClient.setServer(MQTT_SERVER, 1883);
+  Serial.println("Starting up module");
 
-  Serial.println("Initializing Sensor");
-  dht.begin();
+  core.setup();
+  // climateSensor.setup();
 
-  Serial.println("Sensor Information:");
-  sensor_t sensor;
-  dht.temperature().getSensor(&sensor);
-  Serial.println("------------------------------------");
-  Serial.println("Temperature");
-  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
-  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
-  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
-  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println(" *C");
-  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println(" *C");
-  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println(" *C");
-  Serial.println("------------------------------------");
-
-  // Print humidity sensor details.
-  dht.humidity().getSensor(&sensor);
-  Serial.println("------------------------------------");
-  Serial.println("Humidity");
-  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
-  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
-  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
-  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println("%");
-  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println("%");
-  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println("%");
-  Serial.println("------------------------------------");
-
-  // Set delay between sensor readings based on sensor details.
-  minSensorDelay = sensor.min_delay / 1000; // ms
-}
-
-uint32_t loopDelay() {
-  return max(coreLoopDelay, minSensorDelay);
+  mqttClient.setServer(core.getMqttServerAddress(), core.getMqttServerPort());
 }
 
 void loop()
 {
-  if (!mqttClient.connected())
-    reconnect();
+  Serial.println("starting loop iteration");
+  ensureMqttConnected();
 
-  sendStateUpdate();
-
+  //sendStateUpdate();
   mqttClient.loop();
 
-  delay(loopDelay());
+  // should use delay vs some sort of ESP level sleep to reduce power consumption?
+  delay(max(core.getCoreLoopDelay(), climateSensor.getMinSensorScanInterval()));
 }
