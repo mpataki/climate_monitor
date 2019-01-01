@@ -1,10 +1,16 @@
 // #include <EEPROM.h>
 #include <PubSubClient.h>
-#include <secrets.h>
-#include "Core.h"
+#include "Configurator.h"
 #include "ClimateSensor.h"
 
-Core core;
+#define MQTT_SERVER "mqtt_server"
+#define MQTT_PORT "mqtt_port"
+#define MQTT_CLIENT_ID "mqtt_client_id"
+#define MQTT_USERNAME "mqtt_username"
+#define MQTT_PASSWORD "mqtt_password"
+#define MQTT_TOPIC "mqtt_topic"
+#define CORE_LOOP_DELAY "core_loop_delay"
+
 ClimateSensor climateSensor;
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
@@ -20,7 +26,7 @@ void sendStateUpdate() {
   root.printTo(payload, sizeof(payload));
 
   root.prettyPrintTo(Serial);
-  mqttClient.publish(MQTT_TOPIC, payload); // TODO: MQTT_TOPIC should be configurable
+  mqttClient.publish(Configurator::Instance()->getConfigValue(MQTT_TOPIC), payload);
 }
 
 bool ensureMqttConnected() {
@@ -30,9 +36,15 @@ bool ensureMqttConnected() {
   int tries = 1;
 
   while (!mqttClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    Serial.println("Attempting MQTT connection...");
 
-    if (mqttClient.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) { // TODO: all of these should be configurable
+    bool successfulConnection = mqttClient.connect(
+      Configurator::Instance()->getConfigValue(MQTT_CLIENT_ID),
+      Configurator::Instance()->getConfigValue(MQTT_USERNAME),
+      Configurator::Instance()->getConfigValue(MQTT_PASSWORD)
+    );
+
+    if (successfulConnection) {
       Serial.println("MQTT connection established");
     } else if (tries < retryLimit) {
       Serial.print("failed, rc=");
@@ -54,20 +66,41 @@ void setup()
   Serial.begin(9600);
   Serial.println("Starting up module");
 
-  core.setup();
+  // Configurator::Instance()->reset(); // testing
+
+  String defaultClientId = "ESP-" + String(ESP.getChipId());
+  String defaultTopic = "climate/ESP-" + String(ESP.getChipId());
+
+  Configurator::Instance()->addConfigOption(MQTT_SERVER, "MQTT server", "", 40);
+  Configurator::Instance()->addConfigOption(MQTT_PORT, "MQTT port", "1883", 10);
+  Configurator::Instance()->addConfigOption(MQTT_CLIENT_ID, "MQTT Client ID", defaultClientId.c_str(), 20);
+  Configurator::Instance()->addConfigOption(MQTT_USERNAME, "MQTT Username", "", 20);
+  Configurator::Instance()->addConfigOption(MQTT_PASSWORD, "MQTT Password", "", 40);
+  Configurator::Instance()->addConfigOption(MQTT_TOPIC, "MQTT Topic", defaultTopic.c_str(), 40);
+  Configurator::Instance()->addConfigOption(CORE_LOOP_DELAY, "Core Loop Delay", "60000", 6);
+
+  Configurator::Instance()->setup();
   // climateSensor.setup();
 
-  mqttClient.setServer(core.getMqttServerAddress(), core.getMqttServerPort());
+  const char* mqttServerAddress = Configurator::Instance()->getConfigValue(MQTT_SERVER);
+  const char* mqttServerPort = Configurator::Instance()->getConfigValue(MQTT_PORT);
+
+  Serial.println("Setting MQTT server addres to " + String(mqttServerAddress) + ", port " + String(mqttServerPort));
+  mqttClient.setServer(mqttServerAddress, atoi(mqttServerPort));
 }
 
 void loop()
 {
-  Serial.println("starting loop iteration");
+  Configurator::Instance()->loop();
+
   ensureMqttConnected();
 
   //sendStateUpdate();
   mqttClient.loop();
 
   // should use delay vs some sort of ESP level sleep to reduce power consumption?
-  delay(max(core.getCoreLoopDelay(), climateSensor.getMinSensorScanInterval()));
+  delay(max(
+    (uint32_t)atoi(Configurator::Instance()->getConfigValue("core_loop_delay")),
+    climateSensor.getMinSensorScanInterval()
+  ));
 }

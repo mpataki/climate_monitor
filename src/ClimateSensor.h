@@ -20,8 +20,8 @@ public:
 private:
   DHT_Unified dht;
   uint32_t minSensorScanInterval; // ms
-  float lastHumidity = 0.0f;
-  float lastTemperature = 0.0f;
+  float lastHumidity;
+  float lastTemperature;
 };
 
 #endif
