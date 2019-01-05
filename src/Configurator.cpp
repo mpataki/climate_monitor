@@ -54,7 +54,11 @@ void Configurator::clearConfigOptions() {
   configOptions.clear();
 }
 
-void Configurator::setup() {
+void Configurator::setup(int buttonId) {
+  this->buttonId = buttonId;
+
+  pinMode(buttonId, INPUT);
+
   readConfigFile();
 
   if (!wifiManager.autoConnect()) { // use password here?
@@ -70,7 +74,11 @@ void Configurator::setup() {
 }
 
 void Configurator::loop() {
-  // TODO: this should listen for a button press (or five) to trigger the AP
+  if (digitalRead(buttonId) == HIGH) return;
+
+  Serial.println("button pressed - resetting config and restarting device");
+  reset();
+  ESP.reset();
 }
 
 void Configurator::addConfigOption(

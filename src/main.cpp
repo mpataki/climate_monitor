@@ -1,4 +1,3 @@
-// #include <EEPROM.h>
 #include <PubSubClient.h>
 #include "Configurator.h"
 #include "ClimateSensor.h"
@@ -14,6 +13,8 @@
 ClimateSensor climateSensor;
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
+
+int configButton = 0;
 
 void sendStateUpdate() {
   StaticJsonBuffer<256> jsonBuffer;
@@ -79,8 +80,8 @@ void setup()
   Configurator::Instance()->addConfigOption(MQTT_TOPIC, "MQTT Topic", defaultTopic.c_str(), 40);
   Configurator::Instance()->addConfigOption(CORE_LOOP_DELAY, "Core Loop Delay", "60000", 6);
 
-  Configurator::Instance()->setup();
-  // climateSensor.setup();
+  Configurator::Instance()->setup(configButton);
+  climateSensor.setup();
 
   const char* mqttServerAddress = Configurator::Instance()->getConfigValue(MQTT_SERVER);
   const char* mqttServerPort = Configurator::Instance()->getConfigValue(MQTT_PORT);
@@ -95,7 +96,7 @@ void loop()
 
   ensureMqttConnected();
 
-  //sendStateUpdate();
+  sendStateUpdate();
   mqttClient.loop();
 
   // should use delay vs some sort of ESP level sleep to reduce power consumption?

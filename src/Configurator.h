@@ -32,7 +32,7 @@ class Configurator {
     WiFiManager wifiManager;
     WiFiServer wifiServer;
 
-    void setup();
+    void setup(int buttonId);
     void loop();
     void save();
     void reset();
@@ -48,6 +48,7 @@ class Configurator {
   private:
     Configurator();
     static Configurator* instance;
+    int buttonId;
 
     SimpleList<WiFiManagerParameter*> configParams;
     SimpleList<ConfigOption*> configOptions;
